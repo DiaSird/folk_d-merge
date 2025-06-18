@@ -17,7 +17,7 @@ members = [
   "core/nemesis_xml",
   "core/node_expr",
   "core/skyrim_anim_parser",
-  "core/skyrim_crc",
+  "core/skyrim_crc", "egui",
   "gui/backend",
 ]
 resolver = "2"

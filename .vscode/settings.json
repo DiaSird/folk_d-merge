@@ -44,5 +44,11 @@
   ],
   "rust-analyzer.cargo.targetDir": true,
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.linkedProjects": ["Cargo.toml"]
+  "rust-analyzer.linkedProjects": [
+    "Cargo.toml"
+  ],
+  "i18n-ally.localesPaths": [
+    "locales",
+    "gui/frontend/src/lib/i18n"
+  ]
 }

@@ -1,0 +1,24 @@
+[package]
+name = "egui_d_merge"
+version.workspace = true
+description.workspace = true
+categories.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# tokio = { workspace = true }
+# tracing = { workspace = true }
+# nemesis_merge = { workspace = true, features = ["serde", "ts_serde"] }
+egui = "0.31.1"
+eframe = "0.31.1"
+image = "0.25.6"
+reqwest = { version = "0.12.20", features = ["blocking", "json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
