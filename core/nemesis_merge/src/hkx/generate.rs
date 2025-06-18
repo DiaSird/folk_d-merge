@@ -1,27 +1,31 @@
 //! Processes a list of Nemesis XML paths and generates JSON output in the specified directory.
-#![allow(clippy::mem_forget)]
 use crate::{
-    aliases::BorrowedTemplateMap,
-    errors::{Error, FailedIoSnafu, JsonSnafu, Result},
+    errors::{Error, FailedIoSnafu, HkxSerSnafu, JsonSnafu, Result},
     results::filter_results,
+    types::{BorrowedTemplateMap, VariableClassMap},
+    Config, OutPutTarget,
 };
 use rayon::prelude::*;
-use serde_hkx::bytes::serde::hkx_header::HkxHeader;
-use serde_hkx_features::alt_map::{convert_to_usize_keys, ClassMapAlt};
+use serde_hkx::{bytes::serde::hkx_header::HkxHeader, EventIdMap, HavokSort as _, VariableIdMap};
+use serde_hkx_features::{
+    id_maker::crate_maps_from_id_class as create_maps_from_id_class, ClassMap,
+};
 use simd_json::serde::from_borrowed_value;
 use snafu::ResultExt;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-pub(crate) fn generate_hkx_files(
-    output_dir: impl AsRef<Path>,
-    templates: BorrowedTemplateMap<'_>,
+pub(crate) fn generate_hkx_files<'a: 'b, 'b>(
+    config: &Config,
+    templates: BorrowedTemplateMap<'a>,
+    variable_class_map: VariableClassMap<'b>,
 ) -> Result<(), Vec<Error>> {
-    let output_dir = output_dir.as_ref();
-
     let results = templates
         .into_par_iter()
-        .map(|(_, (inner_path, template_json))| {
-            let mut output_path = output_dir.join(inner_path);
+        .map(|(key, (inner_path, template_json))| {
+            let mut output_path = config.output_dir.join(inner_path);
 
             if let Some(output_dir_all) = output_path.parent() {
                 fs::create_dir_all(output_dir_all).context(FailedIoSnafu {
@@ -29,17 +33,54 @@ pub(crate) fn generate_hkx_files(
                 })?;
             }
 
-            #[cfg(feature = "debug")]
-            write_json_patch(&output_path, &template_json)?;
-
             let hkx_bytes = {
-                let ast = from_borrowed_value::<ClassMapAlt>(template_json).with_context(|_| {
-                    JsonSnafu {
+                if config.debug.output_merged_json {
+                    let debug_path = debug_file_path(&config.output_dir, inner_path);
+                    write_patched_json(&debug_path, &template_json)?;
+                }
+
+                let mut class_map: ClassMap =
+                    from_borrowed_value(template_json).with_context(|_| JsonSnafu {
                         path: output_path.clone(),
-                    }
-                })?;
-                let class_map = convert_to_usize_keys(ast)?;
-                serde_hkx::to_bytes(&class_map, &HkxHeader::new_skyrim_se())?
+                    })?;
+
+                if config.debug.output_merged_xml {
+                    let debug_path = debug_file_path(&config.output_dir, inner_path);
+                    write_patched_xml(&debug_path, &class_map)?;
+                };
+
+                let mut event_id_map = None;
+                let mut variable_id_map = None;
+                if let Some(pair) = variable_class_map.0.get(&key) {
+                    let ptr = pair.value();
+
+                    // Create eventID & variableId maps from hkbBehaviorGraphStringData class
+                    if let Some((event_map, var_map)) = class_map
+                        .get(*ptr)
+                        .and_then(|class| create_maps_from_id_class(class))
+                    {
+                        event_id_map = Some(event_map);
+                        variable_id_map = Some(var_map);
+                    };
+                }
+
+                // Convert to hkx bytes & Replace nemesis id.
+                let header = match config.output_target {
+                    OutPutTarget::SkyrimLe => HkxHeader::new_skyrim_le(),
+                    OutPutTarget::SkyrimSe => HkxHeader::new_skyrim_se(),
+                };
+                let event_id_map = event_id_map.unwrap_or_else(EventIdMap::new);
+                let variable_id_map = variable_id_map.unwrap_or_else(VariableIdMap::new);
+
+                // NOTE: T-pause if we don't sort before `to_bytes`.
+                class_map.sort_for_bytes();
+
+                // Output error info
+                // serialize target class, field ptr number.
+                serde_hkx::to_bytes_with_maps(&class_map, &header, event_id_map, variable_id_map)
+                    .with_context(|_| HkxSerSnafu {
+                        path: output_path.clone(),
+                    })?
             };
 
             output_path.set_extension("hkx");
@@ -48,7 +89,7 @@ pub(crate) fn generate_hkx_files(
             })?;
 
             #[cfg(feature = "tracing")]
-            tracing::info!("Generation complete: {}", output_path.display());
+            tracing::info!("Generated: {}", output_path.display());
             Ok(())
         })
         .collect();
@@ -56,28 +97,54 @@ pub(crate) fn generate_hkx_files(
     filter_results(results)
 }
 
-#[cfg(feature = "debug")] // output template.json & template.json debug string
-/// Output template.json & template.json debug string
-fn write_json_patch(
-    output_path: &Path,
-    template_json: &simd_json::BorrowedValue<'_>,
-) -> Result<()> {
-    let mut json_path = output_path.to_path_buf();
-    json_path.set_extension("json.log");
-    fs::write(&json_path, format!("{template_json:#?}")).context(FailedIoSnafu {
-        path: json_path.clone(),
-    })?;
+fn debug_file_path(output_dir: &Path, inner_path: &str) -> PathBuf {
+    output_dir.join(".d_merge").join(".debug").join(inner_path)
+}
 
-    let mut json_path = output_path.to_path_buf();
-    json_path.set_extension("json");
-    fs::write(
-        &json_path,
-        simd_json::to_string_pretty(&template_json).context(crate::error::JsonSnafu {
-            path: json_path.clone(),
-        })?,
-    )
-    .context(FailedIoSnafu {
-        path: json_path.clone(),
+/// Output template.json & template.json debug string
+pub fn write_patched_json<S>(output_file: &Path, template_json: S) -> Result<()>
+where
+    S: serde::Serialize + core::fmt::Debug,
+{
+    if let Some(output_dir_all) = output_file.parent() {
+        fs::create_dir_all(output_dir_all).context(FailedIoSnafu {
+            path: output_dir_all,
+        })?;
+    }
+    if let Ok(pretty_json) = simd_json::to_string_pretty(&template_json) {
+        let mut json_path = output_file.to_path_buf();
+        json_path.set_extension("json");
+        fs::write(&json_path, pretty_json).context(FailedIoSnafu { path: json_path })?;
+    } else {
+        // If pretty print fails, fall back to normal print
+        let mut debug_path = output_file.to_path_buf();
+        debug_path.set_extension("debug_json.log");
+        fs::write(&debug_path, format!("{template_json:#?}"))
+            .context(FailedIoSnafu { path: debug_path })?;
+    }
+
+    Ok(())
+}
+
+fn write_patched_xml(output_path: &Path, class_map: &ClassMap<'_>) -> Result<()> {
+    use serde_hkx::HavokSort as _;
+
+    let mut class_map = class_map.clone();
+    let ptr = class_map
+        .sort_for_xml()
+        .with_context(|_| HkxSerSnafu { path: output_path })?;
+    let xml = serde_hkx::to_string(&class_map, &ptr)
+        .with_context(|_| HkxSerSnafu { path: output_path })?;
+
+    let mut xml_path = output_path.to_path_buf();
+    xml_path.set_extension("xml");
+    if let Some(output_dir_all) = xml_path.parent() {
+        fs::create_dir_all(output_dir_all).context(FailedIoSnafu {
+            path: output_dir_all,
+        })?;
+    }
+    fs::write(&xml_path, &xml).context(FailedIoSnafu {
+        path: xml_path.clone(),
     })?;
 
     Ok(())

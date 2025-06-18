@@ -1,54 +1,32 @@
-import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import NextLink from 'next/link';
-
 import { CssProvider } from '@/components/providers/CssProvider';
 import { EditorModeProvider } from '@/components/providers/EditorModeProvider';
 import { JsProvider } from '@/components/providers/JsProvider';
 import { LogLevelProvider } from '@/components/providers/LogLevelProvider';
 import NotifyProvider from '@/components/providers/NotifyProvider';
+import { PatchProvider } from '@/components/providers/PatchProvider';
 import { TabProvider } from '@/components/providers/TabProvider';
 
-import type { ComponentProps, ReactNode } from 'react';
+import { DynamicThemeProvider } from './DynamicThemeProvider';
 
-const darkTheme = createTheme({
-  palette: {
-    mode: 'dark',
-  },
-  components: {
-    // biome-ignore lint/style/useNamingConvention: <explanation>
-    MuiLink: {
-      defaultProps: {
-        component: (props: ComponentProps<typeof NextLink>) => <NextLink {...props} />,
-      },
-    },
-    // biome-ignore lint/style/useNamingConvention: <explanation>
-    MuiButtonBase: {
-      defaultProps: {
-        // biome-ignore lint/style/useNamingConvention: <explanation>
-        LinkComponent: (props: ComponentProps<typeof NextLink>) => <NextLink {...props} />,
-      },
-    },
-  },
-});
+import type { ReactNode } from 'react';
 
 type Props = Readonly<{ children: ReactNode }>;
 
 export const GlobalProvider = ({ children }: Props) => {
   return (
-    <ThemeProvider theme={darkTheme}>
+    <DynamicThemeProvider>
       <NotifyProvider />
       <LogLevelProvider>
         <TabProvider>
           <EditorModeProvider>
             <JsProvider>
               <CssProvider>
-                <CssBaseline />
-                {children}
+                <PatchProvider>{children}</PatchProvider>
               </CssProvider>
             </JsProvider>
           </EditorModeProvider>
         </TabProvider>
       </LogLevelProvider>
-    </ThemeProvider>
+    </DynamicThemeProvider>
   );
 };

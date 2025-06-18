@@ -4,7 +4,7 @@ use winnow::{
     combinator::{alt, delimited, terminated},
     error::{StrContext, StrContextValue},
     token::take_until,
-    PResult, Parser,
+    ModalResult, Parser,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -17,7 +17,7 @@ pub(crate) enum CommentKind<'a> {
 
 /// # Errors
 /// Parse failed.
-pub(crate) fn comment_kind<'a>(input: &mut &'a str) -> PResult<CommentKind<'a>> {
+pub(crate) fn comment_kind<'a>(input: &mut &'a str) -> ModalResult<CommentKind<'a>> {
     let kind_parser = {
         let mod_code_parser = {
             let id_parser = delimited('~', take_until(0.., '~'), '~');
@@ -51,7 +51,7 @@ pub(crate) fn comment_kind<'a>(input: &mut &'a str) -> PResult<CommentKind<'a>> 
 /// ORIGINAL or CLOSE
 /// # Errors
 /// Parse failed.
-pub(crate) fn close_comment<'a>(input: &mut &'a str) -> PResult<CommentKind<'a>> {
+pub(crate) fn close_comment<'a>(input: &mut &'a str) -> ModalResult<CommentKind<'a>> {
     let kind_parser = {
         let original_parser = delimited_multispace0(Caseless("ORIGINAL"));
 
@@ -74,27 +74,38 @@ pub(crate) fn close_comment<'a>(input: &mut &'a str) -> PResult<CommentKind<'a>>
         .parse_next(input)
 }
 
-pub(crate) fn close_parser<'a>(input: &mut &'a str) -> PResult<&'a str> {
+pub(crate) fn close_parser<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
     delimited_multispace0(Caseless("CLOSE")).parse_next(input)
 }
 
-pub(crate) fn take_till_close<'a>(input: &mut &'a str) -> PResult<&'a str> {
+pub(crate) fn take_till_close<'a>(input: &mut &'a str) -> ModalResult<&'a str> {
     // NOTE: The comment `<! -- UNKNOWN BITS -->` in hkFlags,
     //       so the only way is to match the comment exactly.
     terminated(
-        take_until(0.., "<!-- CLOSE -->"),
+        take_until_ext(0.., Caseless("<!-- CLOSE -->")),
         Caseless("<!-- CLOSE -->"),
     )
     .parse_next(input)
 }
 
-// /// Expected `<!-- CLOSE --></hkparam>`(when tag is `hkparam`)
-// pub(crate) fn take_till_close_and_tag<'a>(
-//     input: &mut &'a str,
-//     tag: &'static str,
-// ) -> PResult<&'a str> {
-//     terminated(take_till_close, super::tag::end_tag(tag)).parse_next(input)
-// }
+/// take_until implementation using only winnow
+fn take_until_ext<Input, Output, Error, ParseNext>(
+    occurrences: impl Into<winnow::stream::Range>,
+    parser: ParseNext,
+) -> impl Parser<Input, Input::Slice, Error>
+where
+    Input: winnow::stream::StreamIsPartial + winnow::stream::Stream,
+    Error: winnow::error::ParserError<Input>,
+    ParseNext: Parser<Input, Output, Error>,
+{
+    use winnow::combinator::{not, peek, repeat, trace};
+    use winnow::token::any;
+
+    trace(
+        "take_until_ext",
+        repeat::<_, _, (), _, _>(occurrences, (peek(not(parser)), any)).take(),
+    )
+}
 
 #[cfg(test)]
 mod tests {

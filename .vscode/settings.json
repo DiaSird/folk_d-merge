@@ -5,11 +5,8 @@
   "[javascript][javascriptreact][typescript][typescriptreact]": {
     "editor.defaultFormatter": "biomejs.biome"
   },
-  "[json]": {
+  "[json][jsonc]": {
     "editor.defaultFormatter": "biomejs.biome"
-  },
-  "[jsonc]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "[yaml]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -17,8 +14,8 @@
   "editor.codeActionsOnSave": {
     "quickfix.biome": "explicit",
     "source.fixAll.eslint": "explicit",
-    "source.fixAll.sortJSON": "never"
-    // "source.organizeImports.biome": "explicit"
+    "source.fixAll.sortJSON": "never",
+    "source.organizeImports.biome": "never"
   },
   "editor.formatOnSave": true,
   "evenBetterToml.formatter.alignComments": true,
@@ -36,6 +33,7 @@
     "**/target/**": true
   },
   "i18n-ally.keystyle": "nested",
+  "i18n-ally.localesPaths": ["locales", "gui/frontend/src/lib/i18n"],
   "json.schemas": [
     {
       "fileMatch": ["/dummy/convert/input/*.json"],
@@ -44,11 +42,6 @@
   ],
   "rust-analyzer.cargo.targetDir": true,
   "rust-analyzer.check.command": "clippy",
-  "rust-analyzer.linkedProjects": [
-    "Cargo.toml"
-  ],
-  "i18n-ally.localesPaths": [
-    "locales",
-    "gui/frontend/src/lib/i18n"
-  ]
+  "rust-analyzer.linkedProjects": ["Cargo.toml"],
+  "rust-analyzer.runnables.extraTestBinaryArgs": ["--show-output", "--nocapture"] // Real time println! on test
 }

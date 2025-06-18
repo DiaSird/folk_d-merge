@@ -1,68 +1,133 @@
-# D Merge(Early development stage)
+# D Merge(Diff & Merge) hkx patcher
 
-diff & merge => d_merge json patch-based hkx patch
+<div align="center">
+  <a href="https://github.com/SARDONYX-sard/d-merge/release">
+    <img src="./gui/backend/icons/icon.svg" alt="D Merge"/>
+  </a>
 
-- Current serde_hkx ver. 0.6.0
+  <!-- Release Badges -->
+  <p>
+    <a href="https://github.com/SARDONYX-sard/d-merge/releases/latest">
+      <img src="https://img.shields.io/github/v/release/SARDONYX-sard/d-merge?style=flat-square" alt="Latest Release">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/releases">
+      <img src="https://img.shields.io/github/downloads/SARDONYX-sard/d-merge/total?style=flat-square" alt="Total Downloads">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/actions/workflows/release-gui.yaml">
+      <img src="https://github.com/SARDONYX-sard/d-merge/actions/workflows/release-gui.yaml/badge.svg?style=flat-square" alt="Release GUI Status">
+    </a>
+    <a href="https://opensource.org/licenses/GPL-3.0">
+      <img src="https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square" alt="License: GPL v3">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/stargazers">
+      <img src="https://img.shields.io/github/stars/SARDONYX-sard/d-merge?style=social" alt="GitHub Stars">
+    </a>
+  </p>
 
-## For Tester
+  <!-- Development Badges -->
+  <p>
+    <a href="https://github.com/SARDONYX-sard/d-merge/actions/workflows/build-and-test.yaml">
+      <img src="https://github.com/SARDONYX-sard/d-merge/actions/workflows/build-and-test.yaml/badge.svg?style=flat-square" alt="Build & Test Status">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/issues">
+      <img src="https://img.shields.io/github/issues/SARDONYX-sard/d-merge?style=flat-square" alt="Open Issues">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/pulls">
+      <img src="https://img.shields.io/github/issues-pr/SARDONYX-sard/d-merge?style=flat-square" alt="Open PRs">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/commits/main">
+      <img src="https://img.shields.io/github/last-commit/SARDONYX-sard/d-merge?style=flat-square" alt="Last Commit">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge/graphs/contributors">
+      <img src="https://img.shields.io/github/contributors/SARDONYX-sard/d-merge?style=flat-square" alt="Contributors">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge">
+      <img src="https://img.shields.io/github/languages/top/SARDONYX-sard/d-merge?style=flat-square" alt="Top Language">
+    </a>
+    <a href="https://github.com/SARDONYX-sard/d-merge">
+      <img src="https://img.shields.io/github/languages/code-size/SARDONYX-sard/d-merge?style=flat-square" alt="Code Size">
+    </a>
+  </p>
+</div>
 
-The patch page is under development, so there is no need to submit an issue.
+## Release
 
-Convert page problem
+- [Early Release](https://github.com/SARDONYX-sard/d-merge/releases)
 
-- For the look and feel, Write d_merge issue
-- Conversion feature bugs should be written in serde_hkx issues
+## Patch Page Progress
 
-![image](https://github.com/user-attachments/assets/1b8f0a0b-8aa2-4bd3-9cba-f75a6ff9095d)
+This currently works to some extent(Sliding, Paraglider, MCO, DMCO-Dodge, ...), but there seems to be a conflict where the patch changes every time the button is pressed.
 
-- [Release(For test)](https://github.com/SARDONYX-sard/d-merge/releases)
+The only thing we are considering at this time is support for the Nemesis patch.(Since I only use the Nemesis patch).
 
-## Implementation
+- GUI
 
-- [x] Convert page
-- [ ] Patch page <- current working
-- [x] settings page
+  - [x] Basic frontend(patch, convert, settings)
+  - [x] Support MO2 mode/Virtual file system mode(auto read settings file) when use auto detect(Current: windows only)
+  - [ ] hkx json/patch editor
+  - [ ] In the case of vfs, use mod_code as the ID (if the ID is duplicated, the UI will bug out, but this will allow you to transfer your environment to others).
 
-## Patch page detail
+- AnimData(`animationdatasinglefile.txt`)
 
-The only thing we are considering at this time is support for the Nemesis patch.
-(Since I only use the Nemesis patch).
-
-- [x] frontend
-- asdsf(Not serialization),
-  - [ ] Serialization
+  - [x] Serialization
   - [x] Deserialization
-- adsf,
-  - [ ] Serialization
+  - [x] Add Operation
+  - [x] Replace/Remove Operation
+  - [ ] Conflict resolver
+
+- AnimSetData(`animationsetdatasinglefile.txt`)
+
+  - [x] Serialization
   - [x] Deserialization
-- info.txt searcher.
-- Merge
-  - [x] Parallel json patch
-  - [x] Fix range add operation of Array
-  - [ ] Prioritization and conflict resolution among patches, optimization by
-        merging
+  - [ ] Add Operation (Impossible unless the specification of the difference is understood.)
+  - [ ] Replace/Remove Operation(Same issue)
 
-## Extra build
+- hkx templates
 
-- json, yaml support
-- hkx conversion log with tracing
+  - [x] Change xml to message_pack bin.
 
-## `Package.json` notes
+- Nemesis Patch
+  - [x] Basic parallel merge.
+  - [ ] Fix unknown merge race condition
 
-Comments cannot be written in `Package.json`, so write them here.
+![patch_page](https://github.com/user-attachments/assets/48b4d85d-ce79-4a46-87de-55a9c7e27436)
 
-Note that the following version must be fixed or it will not work for some
-reason.
+## Licenses
 
-- Biome:
-  - version: 1.9.3
-  - VS Code extension: 2.2.3
+This project includes multiple crates with different licenses. The overall license of the `backend` crate is **GPL-3.0**, due to transitive dependencies on GPL-licensed components.
 
-- mui/x-data-grid, when changing from `7.22.2` to `7.23.1`, the `setState` in
-  `handleRowSelectionModelChange` is now
+- [GPL-3.0](./LICENSE)
+- [MIT](./LICENSES/LICENSE-MIT)
+- [Apache2.0](./LICENSES/LICENSE-APACHE)
 
-  `Cannot update a component () while rendering a different component ()` and
-  therefore do not use "7.23.1".
+### License Tree
 
-- `React19` is a new ver. stabilized on 2024/12/5, so `notistack`,
-  `@monaco-editor/react` warns. In that case, use `npm i --force`.
+```txt
+gui/backend (GPL-3.0)
+├── nemesis_merge (GPL-3.0)
+│   ├── skyrim_anim_parser (GPL-3.0)
+│   ├── nemesis_xml (MIT OR Apache-2.0)
+│   ├── skyrim_crc (MIT OR Apache-2.0)
+│   └── json_patch (MIT OR Apache-2.0)
+├── mod_info (MIT OR Apache-2.0)
+└── node_expr (MIT OR Apache-2.0)
+```
+
+#### License Propagation
+
+- **`skyrim_anim_parser`**:
+  I understood the specification of this `animationdatasinglefile.txt` file from reading pandora. Therefore, I will keep it under GPL-3.0 just in case.
+
+- **`nemesis_merge`**:
+  This crate depends on both `skyrim_anim_parser` (GPL-3.0) and a GPL-licensed template(See `resource` dir). Thus, it is required to be **GPL-3.0**.
+
+- **`backend`**:
+  As a GUI frontend that depends on `nemesis_merge`, it inherits the **GPL-3.0** license through transitive dependency.
+
+Other utility crates (e.g., `mod_info`, `node_expr`, `json_patch`, etc.) are licensed under **MIT OR Apache-2.0**, but the presence of GPL-licensed dependencies requires that the final binary (the GUI/backend) must be distributed under **GPL-3.0**.
+
+Please ensure that your usage and redistribution of this software complies with the [**GPL-3.0**](./LICENSE) license terms.
+
+## Frontend NOTE
+
+If we bump the deps version in package.json any further, you will no longer be able to sort by dnd.

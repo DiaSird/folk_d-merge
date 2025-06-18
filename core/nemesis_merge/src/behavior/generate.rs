@@ -1,14 +1,14 @@
 //! Processes a list of Nemesis XML paths and generates JSON output in the specified directory.
 use crate::{
     config::{Config, Status},
-    errors::{write_errors::write_errors, Error, Result},
+    errors::{write_errors::write_errors, BehaviorGenerationError, Error, Result},
     hkx::generate::generate_hkx_files,
     patches::{
         apply::apply_patches,
-        collect::{collect_borrowed_patches, collect_owned_patches},
-        merge::{merge_patches, paths_to_ids},
+        collect::{collect_borrowed_patches, collect_owned_patches, BorrowedPatches},
     },
-    templates::collect::collect_templates,
+    path_id::paths_to_priority_map,
+    types::OwnedPatchMap,
 };
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -18,109 +18,145 @@ use std::path::PathBuf;
 ///
 /// # Errors
 /// Returns an error if file parsing, I/O operations, or JSON serialization fails.
-pub async fn behavior_gen(nemesis_paths: Vec<PathBuf>, options: Config) -> Result<()> {
-    let error_output = options.output_dir.join("d_merge_errors.log");
-    let mut all_errors = vec![];
+pub async fn behavior_gen(nemesis_paths: Vec<PathBuf>, config: Config) -> Result<()> {
+    let id_order = paths_to_priority_map(&nemesis_paths);
+    #[cfg(feature = "tracing")]
+    {
+        let mut sorted: Vec<_> = id_order.par_iter().collect();
+        sorted.par_sort_by_key(|&(_, v)| *v);
+        tracing::trace!("id_order_by_priority = {sorted:#?}");
+    }
 
-    // 1/4:
-    let owned_patches = match collect_owned_patches(&nemesis_paths) {
-        Ok(owned_patches) => owned_patches,
-        Err(errors) => {
-            let errors_len = errors.len();
-            write_errors(&error_output, &errors).await?;
-            return Err(Error::FailedToReadOwnedPatches { errors_len });
-        }
+    // Collect all patches file.
+    config.on_report_status(Status::ReadingTemplatesAndPatches);
+    let (owned_adsf_patches, owned_patches, owned_file_errors) =
+        collect_owned_patches(&nemesis_paths, &id_order).await;
+
+    // - Patch to `animationdatasinglefile.txt`
+    // - Patch to hkx( -> xml)
+    let (adsf_errors, patched_hkx_errors) = rayon::join(
+        || crate::adsf::apply_adsf_patches(owned_adsf_patches, &id_order, &config),
+        || apply_and_gen_patched_hkx(&owned_patches, &config),
+    );
+
+    let Errors {
+        patch_errors_len,
+        apply_errors_len,
+        hkx_errors_len,
+        hkx_errors,
+    } = patched_hkx_errors;
+    let owned_file_errors_len = owned_file_errors.len();
+    let adsf_errors_len = adsf_errors.len();
+
+    let all_errors = {
+        let mut all_errors = vec![];
+        all_errors.par_extend(owned_file_errors);
+        all_errors.par_extend(adsf_errors);
+        all_errors.par_extend(hkx_errors);
+        all_errors
     };
 
-    options.report_status(Status::ReadingTemplatesAndPatches);
-    let ((template_names, template_patch_map), errors) = collect_borrowed_patches(&owned_patches);
-    let patch_errors_len = errors.len();
-    all_errors.par_extend(errors);
+    if !all_errors.is_empty() {
+        let err = BehaviorGenerationError {
+            owned_file_errors_len,
+            adsf_errors_len,
+            patch_errors_len,
+            apply_errors_len,
+            hkx_errors_len,
+        };
+        config.on_report_status(Status::Error(err.to_string()));
 
-    let ids = paths_to_ids(&nemesis_paths);
-    {
-        // HACK: Lifetime inversion hack: `templates` require `patch_mod_map` to live longer than `templates`, but `templates` actually live longer than `templates`.
-        // Therefore, reassign the local variable in the block to shorten the lifetime
-        let (templates, errors) = collect_templates(template_names, &options.resource_dir);
+        write_errors(&config, &all_errors).await?;
+        return Err(Error::FailedToGenerateBehaviors { source: err });
+    };
+
+    config.on_report_status(Status::Done);
+    Ok(())
+}
+
+struct Errors {
+    patch_errors_len: usize,
+    apply_errors_len: usize,
+    hkx_errors_len: usize,
+    hkx_errors: Vec<Error>,
+}
+
+fn apply_and_gen_patched_hkx(owned_patches: &OwnedPatchMap, config: &Config) -> Errors {
+    let mut all_errors = vec![];
+
+    // 1/2: Apply patches & Replace variables to indexes
+    config.on_report_status(Status::ApplyingPatches);
+    let (
+        BorrowedPatches {
+            template_names,
+            borrowed_patches,
+            variable_class_map,
+        },
+        patch_errors_len,
+    ) = {
+        let (patch_result, errors) = collect_borrowed_patches(owned_patches, config.hack_options);
+        let patch_errors_len = errors.len();
         all_errors.par_extend(errors);
+        (patch_result, patch_errors_len)
+    };
+    #[cfg(feature = "tracing")]
+    tracing::debug!("needed template_names = {template_names:#?}");
 
-        // 2/4: Priority joins between patches may allow templates to be processed in a parallel loop.
-        let patches = { merge_patches(template_patch_map, &ids)? };
+    let owned_templates = {
+        use crate::templates::collect::owned;
+        let template_dir = &config.resource_dir;
+        // NOTE: Since `DashSet` cannot solve the lifetime error of `contain`, we have no choice but to replace it with `HashSet`.
+        owned::collect_templates(template_dir, template_names.into_par_iter().collect())
+    };
 
-        // 3/4: Apply patches
-        options.report_status(Status::ApplyingPatches);
-        if let Err(errors) = apply_patches(&templates, patches) {
+    {
+        // NOTE: Without this seemingly meaningless move, an lifetime error is made.
+        // Need `'owned_templates`: `'variable_class_map` & `'borrowed_patches`. So let's move here and shrink these lifetimes.
+        let variable_class_map = variable_class_map;
+        let borrowed_patches = borrowed_patches;
+
+        let template_error_len;
+        let templates = {
+            use crate::templates::collect::borrowed;
+            let (templates, errors) = borrowed::collect_templates(&owned_templates);
+            template_error_len = errors.len();
+            all_errors.par_extend(errors);
+            templates
+        };
+
+        #[cfg(feature = "tracing")]
+        {
+            tracing::debug!("owned_templates_keys = {:#?}", owned_templates.keys());
+            tracing::debug!("borrowed_templates_keys = {:#?}", {
+                let borrowed_keys: Vec<String> =
+                    templates.par_iter().map(|r| r.key().to_string()).collect();
+                borrowed_keys
+            });
+        }
+
+        let mut apply_errors_len = template_error_len;
+        if let Err(errors) = apply_patches(&templates, borrowed_patches, config) {
+            apply_errors_len = errors.len();
             all_errors.par_extend(errors);
         };
-        let apply_errors_len = all_errors.len();
 
-        // 4/4: Generate hkx files.
-        options.report_status(Status::GenerateHkxFiles);
-        let hkx_errors_len =
-            if let Err(hkx_errors) = generate_hkx_files(options.output_dir, templates) {
+        // 2/2: Generate hkx files.
+        config.on_report_status(Status::GenerateHkxFiles);
+        let hkx_errors_len = {
+            if let Err(hkx_errors) = generate_hkx_files(config, templates, variable_class_map) {
                 let errors_len = hkx_errors.len();
                 all_errors.par_extend(hkx_errors);
                 errors_len
             } else {
                 0
-            };
+            }
+        };
 
-        if !all_errors.is_empty() {
-            write_errors(&error_output, &all_errors).await?;
-            return Err(Error::FailedToGenerateBehaviors {
-                hkx_errors_len,
-                patch_errors_len,
-                apply_errors_len,
-            });
+        Errors {
+            patch_errors_len,
+            apply_errors_len,
+            hkx_errors_len,
+            hkx_errors: all_errors,
         }
-    };
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "unimplemented yet"]
-    #[cfg_attr(
-        feature = "tracing",
-        quick_tracing::init(file = "../../dummy/merge_test.log", stdio = false)
-    )]
-    async fn merge_test() {
-        #[allow(clippy::iter_on_single_items)]
-        let ids = [
-            "../../dummy/Data/Nemesis_Engine/mod/aaaaa",
-            "../../dummy/Data/Nemesis_Engine/mod/bcbi",
-            "../../dummy/Data/Nemesis_Engine/mod/cbbi",
-            "../../dummy/Data/Nemesis_Engine/mod/gender",
-            "../../dummy/Data/Nemesis_Engine/mod/hmce",
-            "../../dummy/Data/Nemesis_Engine/mod/momo",
-            "../../dummy/Data/Nemesis_Engine/mod/na1w",
-            "../../dummy/Data/Nemesis_Engine/mod/nemesis",
-            "../../dummy/Data/Nemesis_Engine/mod/pscd",
-            "../../dummy/Data/Nemesis_Engine/mod/rthf",
-            "../../dummy/Data/Nemesis_Engine/mod/skice",
-            "../../dummy/Data/Nemesis_Engine/mod/sscb",
-            "../../dummy/Data/Nemesis_Engine/mod/tkuc",
-            "../../dummy/Data/Nemesis_Engine/mod/tudm",
-            "../../dummy/Data/Nemesis_Engine/mod/turn",
-            "../../dummy/Data/Nemesis_Engine/mod/zcbe",
-        ]
-        .into_par_iter()
-        .map(|s| s.into())
-        .collect();
-
-        behavior_gen(
-            ids,
-            Config {
-                resource_dir: "../../resource/assets/templates".into(),
-                output_dir: "../../dummy/behavior_gen/output".into(),
-                status_report: None,
-            },
-        )
-        .await
-        .unwrap();
     }
 }

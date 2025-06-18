@@ -1,13 +1,13 @@
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-alpha.8"
 description = ""
 categories = ["games", "parsing"]
 authors = ["SARDONYX-sard"]
-license = "GPL-3.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/SARDONYX-sard/d-merge"
 readme = "README.md"
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.87"
 
 [workspace]
 members = [
@@ -23,31 +23,29 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+dashmap = { version = "6.1.0" }
 educe = { version = "0.6.0" }
 futures = { version = "0.3.31" }
-indexmap = { version = "2.7.0", features = ["rayon"] }
+indexmap = { version = "2.9.0", features = ["rayon"] }
 jwalk = { version = "0.8.1" }
-once_cell = "1.20.2"
-phf = "0.11.2"
+once_cell = "1.21.3"
+phf = "0.11.3"
 rayon = "1.10.0"
-serde = { version = "1.0.216", features = ["derive"] } # Implement (De)Serialize
-serde_json = "1.0.133" # gui: To avoid generate_context error.
-serde_repr = "0.1.19" # C like Serialize enum into numbers.(Using progress reporing)
-simd-json = "0.14.3"
-snafu = "0.8.5"
-tokio = { version = "1.42.0", features = [
-  "fs",
-  "rt-multi-thread",
-] } # Async runtime
+rmp-serde = "1.3.0" # message pack binary serde
+serde = { version = "1.0.219", features = ["derive"] } # Implement (De)Serialize
+serde_json = "1.0.140" # gui: To avoid generate_context error.
+serde_repr = "0.1.20" # C like Serialize enum into numbers.(Using progress reporting)
+simd-json = "0.15.1"
+snafu = "0.8.6"
+tokio = { version = "1.45.1", features = [ "fs", "rt-multi-thread", ] } # Async runtime
 tracing = { version = "0.1.41" } # logger
 tracing-subscriber = "0.3.19"
-winnow = { version = "0.6.20", features = ["simd"] }
+winnow = { version = "0.7.11", features = ["simd"] }
 
-serde_hkx = { git = "https://github.com/SARDONYX-sard/serde-hkx", rev = "7d216d45706053673022e8f078ec52463027eeb6", default-features = false }
-havok_classes = { git = "https://github.com/SARDONYX-sard/serde-hkx", rev = "7d216d45706053673022e8f078ec52463027eeb6", default-features = false, features = [
-  "ignore_duplicates",
-] }
-serde_hkx_features = { git = "https://github.com/SARDONYX-sard/serde-hkx", rev = "7d216d45706053673022e8f078ec52463027eeb6", default-features = false }
+diff = { git = "https://github.com/SARDONYX-forks/d-merge-serde-hkx", tag = "0.8.5", default-features = false }
+havok_classes = { git = "https://github.com/SARDONYX-forks/d-merge-serde-hkx", tag = "0.8.5", default-features = false, features = [ "ignore_duplicates" ] }
+serde_hkx = { git = "https://github.com/SARDONYX-forks/d-merge-serde-hkx", tag = "0.8.5", default-features = false }
+serde_hkx_features = { git = "https://github.com/SARDONYX-forks/d-merge-serde-hkx", tag = "0.8.5", default-features = false }
 
 # dev-dependencies
 pretty_assertions = "1.4.1"                                  # Color diff assertion
@@ -95,8 +93,10 @@ nursery = { level = "warn", priority = -1 }
 derive_partial_eq_without_eq = "allow"
 future_not_send = "allow"
 multiple_crate_versions = "allow"
+option_if_let_else = "allow"
 pub_with_shorthand = "allow"
 redundant_pub_crate = "allow"
+result_large_err = "allow"
 
 # custom deny list
 char_lit_as_u8 = "deny"
@@ -153,7 +153,6 @@ mutex_integer = "deny"
 needless_borrow = "deny"
 needless_continue = "deny"
 needless_for_each = "deny"
-option_if_let_else = "deny"
 option_option = "deny"
 path_buf_push_overwrite = "deny"
 ptr_as_ptr = "deny"

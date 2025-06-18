@@ -7,21 +7,35 @@ type Patches<'xml> = Vec<CurrentJsonPatch<'xml>>;
 
 #[derive(Debug, Clone, Default)]
 pub struct CurrentState<'xml> {
+    /// current parsing filed type info.
     pub field_info: Option<&'static FieldInfo>,
     /// When present, this signals the start of a differential change
     pub mode_code: Option<&'xml str>,
+
+    /// Is passed `<!-- ORIGINAL --!>` xml comment?
     is_passed_original: bool,
+
+    /// If the addition or deletion is `<! -- CLOSE --!>` since it is impossible to determine whether something
+    /// is added or deleted until a comment comes in, this is a place to temporarily save them.
     pub patches: Patches<'xml>,
 
     /// Indicates the current json position during one patch file.
+    ///
+    /// e.g. `["#2521", "BSRagdollContactListenerModifier"]`
     pub path: Vec<Cow<'xml, str>>,
 
     /// Indicates the extent of differential change of elements inside the Array.
+    ///
     /// # Note
     /// - Used only when changing Array.
     /// - If start and end of range are the same, index mode
     pub seq_range: Option<Range<usize>>,
 
+    /// Array range patch
+    ///
+    /// # Note
+    /// - Used only when changing Array.
+    /// - If start and end of range are the same, index mode
     pub seq_values: Vec<BorrowedValue<'xml>>,
 }
 
@@ -54,7 +68,7 @@ impl<'de> CurrentState<'de> {
 
     /// - `<!-- ORIGINAL --!> is found.
     #[inline]
-    pub fn set_is_passed_original(&mut self) {
+    pub const fn set_is_passed_original(&mut self) {
         self.is_passed_original = true;
     }
 
@@ -62,7 +76,7 @@ impl<'de> CurrentState<'de> {
     pub fn judge_operation(&self) -> Op {
         self.mode_code.map_or(Op::Remove, |_| {
             if self.is_passed_original {
-                if self.patches.is_empty() {
+                if self.patches.is_empty() && self.seq_values.is_empty() {
                     Op::Remove
                 } else {
                     Op::Replace
@@ -74,11 +88,12 @@ impl<'de> CurrentState<'de> {
     }
 
     #[inline]
-    fn clear_flags(&mut self) {
+    pub const fn clear_flags(&mut self) {
         self.mode_code = None;
         self.is_passed_original = false;
     }
 
+    /// Judge Op + clear flags + take patches
     #[inline]
     pub fn take_patches(&mut self) -> (Op, Patches<'de>) {
         let op = self.judge_operation();
@@ -86,17 +101,7 @@ impl<'de> CurrentState<'de> {
         (op, mem::take(&mut self.patches))
     }
 
-    pub fn current_range_to_path(&self) -> Option<String> {
-        self.seq_range.as_ref().map(|range| {
-            let Range { start, end } = range.clone();
-            match (start..end).count() {
-                0 => format!("[{end}]"),
-                _ => format!("[{start}:{end}]"),
-            }
-        })
-    }
-
-    pub fn increment_range(&mut self) {
+    pub const fn increment_range(&mut self) {
         if let Some(ref mut range) = self.seq_range {
             range.end += 1;
         }

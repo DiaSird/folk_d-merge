@@ -1,22 +1,25 @@
 use core::str::FromStr;
 use std::borrow::Cow;
 use winnow::{
-    ascii::{line_ending, till_line_ending},
+    ascii::{line_ending, space0, till_line_ending},
     combinator::alt,
-    error::{ContextError, StrContext::*, StrContextValue::*},
-    PResult, Parser,
+    error::{ContextError, ErrMode, StrContext::*, StrContextValue::*},
+    ModalResult, Parser,
 };
 
 pub type Str<'a> = Cow<'a, str>;
 
 /// Parse 1 line.
-pub(crate) fn one_line<'a>(input: &mut &'a str) -> PResult<Str<'a>> {
+pub(crate) fn one_line<'a>(input: &mut &'a str) -> ModalResult<Str<'a>> {
     let line = till_line_ending.parse_next(input)?;
+    // In the case of patches, this may not be present, so `opt`
     line_ending.parse_next(input)?; // skip line end
     Ok(line.into())
 }
 
-pub(crate) fn lines<'a>(read_len: usize) -> impl Parser<&'a str, Vec<Str<'a>>, ContextError> {
+pub(crate) fn lines<'a>(
+    read_len: usize,
+) -> impl Parser<&'a str, Vec<Str<'a>>, ErrMode<ContextError>> {
     move |input: &mut &'a str| {
         let mut lines = vec![];
         for _ in 0..read_len {
@@ -26,18 +29,44 @@ pub(crate) fn lines<'a>(read_len: usize) -> impl Parser<&'a str, Vec<Str<'a>>, C
     }
 }
 
+/// Parse txt stem line.
+///
+/// e.g. `DefaultMale.txt` -> `DefaultMale`
+pub(crate) fn txt_one_line<'a>(input: &mut &'a str) -> ModalResult<Str<'a>> {
+    space0.parse_next(input)?;
+    let name = winnow::token::take_until(0.., ".txt").parse_next(input)?;
+    till_line_ending.parse_next(input)?;
+    line_ending.parse_next(input)?; // skip line end
+    Ok(name.into())
+}
+
 /// Parse one line and then parse to T.
 #[inline]
-pub(crate) fn from_one_line<T: FromStr>(input: &mut &str) -> PResult<T> {
+pub(crate) fn verify_line_parses_to<'a, T>(input: &mut &'a str) -> ModalResult<Str<'a>>
+where
+    T: FromStr,
+{
+    // For some reason, using parse_to for Cow causes an error, so the method chain of the existing parser is used.
+    let line = till_line_ending
+        .verify(|s: &str| s.parse::<T>().is_ok())
+        .parse_next(input)?;
+    line_ending.parse_next(input)?; // skip line end
+    Ok(line.into())
+}
+
+/// Parse one line and then parse to T.
+#[inline]
+pub(crate) fn parse_one_line<T: FromStr>(input: &mut &str) -> ModalResult<T> {
     // For some reason, using parse_to for Cow causes an error, so the method chain of the existing parser is used.
     let line = till_line_ending.parse_to().parse_next(input)?;
+    // In the case of patches, this may not be present, so `opt`
     line_ending.parse_next(input)?; // skip line end
     Ok(line)
 }
 
 /// - `'0'` => `false`
 /// - `'1'` => `true`
-fn num_bool(input: &mut &str) -> PResult<bool> {
+fn num_bool(input: &mut &str) -> ModalResult<bool> {
     alt(('0'.value(false), '1'.value(true)))
         .context(Expected(CharLiteral('0')))
         .context(Expected(CharLiteral('1')))
@@ -46,7 +75,7 @@ fn num_bool(input: &mut &str) -> PResult<bool> {
 
 /// - `'0'` => `false`
 /// - `'1'` => `true`
-pub(crate) fn num_bool_line(input: &mut &str) -> PResult<bool> {
+pub(crate) fn num_bool_line(input: &mut &str) -> ModalResult<bool> {
     let boolean = num_bool.parse_next(input)?;
     line_ending.parse_next(input)?; // skip line end
     Ok(boolean)
@@ -90,15 +119,15 @@ mod tests {
     #[test]
     fn test_from_one_line() {
         let mut input = "123\n";
-        let result: i32 = from_one_line(&mut input).unwrap();
+        let result = parse_one_line::<i32>(&mut input).unwrap();
         assert_eq!(result, 123);
 
         let mut input_non_numeric = "abc\n";
-        let result_non_numeric: Result<i32, _> = from_one_line(&mut input_non_numeric);
+        let result_non_numeric = verify_line_parses_to::<i32>(&mut input_non_numeric);
         assert!(result_non_numeric.is_err());
 
         let mut input_empty = "\n";
-        let result_empty: Result<i32, _> = from_one_line(&mut input_empty);
+        let result_empty = verify_line_parses_to::<i32>(&mut input_empty);
         assert!(result_empty.is_err());
     }
 

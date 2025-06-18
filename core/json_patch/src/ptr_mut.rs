@@ -39,7 +39,7 @@ impl PointerMut for BorrowedValue<'_> {
                         _ => None,
                     }
                 }
-                _ => None,
+                _v => None,
             })
     }
 }

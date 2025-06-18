@@ -89,12 +89,10 @@ impl GetModsInfo for ModsInfo {
 
 /// Get `<id>` from `Nemesis_Engine/mods/<id>/info.ini`
 #[inline]
-fn extract_id_from_path(path: impl AsRef<Path>) -> Option<String> {
-    path.as_ref()
-        .parent()
+fn extract_id_from_path(path: &Path) -> Option<&str> {
+    path.parent()
         .and_then(Path::file_name)
         .and_then(|os_str| os_str.to_str())
-        .map(|s| s.to_string())
 }
 
 #[cfg(test)]
@@ -107,14 +105,15 @@ mod tests {
     fn get_mod_info() -> Result<()> {
         let pattern = "../../dummy/Data/Nemesis_Engine/mod/*/info.ini";
         let info = ModsInfo::get_all(pattern)?;
-        println!("{:#?}", info);
+        println!("{info:#?}");
         Ok(())
     }
 
     #[test]
     fn test_extract_id_from_path() {
         fn assert_eq_id(path: impl AsRef<Path>, id: Option<&str>) {
-            assert_eq!(extract_id_from_path(path), id.map(|s| s.to_string()));
+            let path = path.as_ref();
+            assert_eq!(extract_id_from_path(path), id);
         }
 
         assert_eq_id("Nemesis_Engine/mods/123/info.ini", Some("123"));

@@ -1,29 +1,28 @@
 pub mod error;
 mod one_op;
-mod range_op;
+mod seq;
 
 use self::error::Result;
-use self::one_op::add::apply_add;
-use self::one_op::remove::apply_remove;
-use self::one_op::replace::apply_replace;
-use self::range_op::apply_range;
-use crate::operation::Op;
-use crate::range::parse::is_range_op;
-use crate::JsonPatch;
+use self::one_op::apply_one_field;
+use self::seq::apply_seq_by_priority;
+use crate::{JsonPath, Patch};
 use simd_json::BorrowedValue;
 
 /// Applies a JSON patch operation to a mutable reference to a JSON value.
 ///
 /// # Errors
 /// If the patch operation fails due to an invalid operation or path not found.
-pub fn apply_patch<'v>(json: &mut BorrowedValue<'v>, patch: JsonPatch<'v>) -> Result<()> {
-    if is_range_op(&patch.path) {
-        apply_range(json, patch)
-    } else {
-        match patch.op {
-            Op::Add => apply_add(json, patch),
-            Op::Remove => apply_remove(json, patch),
-            Op::Replace => apply_replace(json, patch),
-        }
+///
+/// # Panics
+#[inline]
+pub fn apply_patch<'v>(
+    file_name: &str,
+    json: &mut BorrowedValue<'v>,
+    path: JsonPath<'v>,
+    patch: Patch<'v>,
+) -> Result<()> {
+    match patch {
+        Patch::One(patch) => apply_one_field(json, path, patch),
+        Patch::Seq(patches) => apply_seq_by_priority(file_name, json, path, patches),
     }
 }

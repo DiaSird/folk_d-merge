@@ -1,10 +1,14 @@
 import { arrayMove } from '@dnd-kit/sortable';
+import { useGridApiRef } from '@mui/x-data-grid';
 import { memo, useCallback } from 'react';
 
 import { DraggableDataGrid } from '@/components/molecules/DraggableGrid/DraggableDataGrid';
+import { usePatchContext } from '@/components/providers/PatchProvider';
+import { PUB_CACHE_OBJ } from '@/lib/storage/cacheKeys';
 
-import { usePatchContext } from './PatchProvider';
-import { useColumns } from './useColumns';
+import { CustomToolbar } from './GridToolbar';
+import { useColumns } from './hooks/useColumns';
+import { useGridStatePersistence } from './hooks/useGridStatePersistence';
 
 import type { Props as DndCtxProps } from '@dnd-kit/core/dist/components/DndContext/DndContext';
 import type { DataGridPropsWithoutDefaultValue } from '@mui/x-data-grid/internals';
@@ -42,7 +46,7 @@ export const ModsGrid: FC<Props> = memo(function ModsGrid({ ...props }) {
         return;
       }
 
-      const selectedRowId = new Set(RowId);
+      const selectedRowId = new Set(RowId.ids);
       const selectedIds: string[] = [];
 
       for (const row of modInfoList) {
@@ -55,10 +59,13 @@ export const ModsGrid: FC<Props> = memo(function ModsGrid({ ...props }) {
     [modInfoList, setActivateMods],
   );
 
+  const apiRef = useGridApiRef();
+  useGridStatePersistence(apiRef, PUB_CACHE_OBJ.modsGridState);
+
   return (
     <DraggableDataGrid
+      apiRef={apiRef}
       columns={columns}
-      density='compact'
       initialState={{
         columns: {
           columnVisibilityModel: {
@@ -67,11 +74,17 @@ export const ModsGrid: FC<Props> = memo(function ModsGrid({ ...props }) {
           },
         },
       }}
+      keepNonExistentRowsSelected={true}
       loading={loading}
       onDragEnd={handleDragEnd}
       onRowSelectionModelChange={handleRowSelectionModelChange}
-      rowSelectionModel={activateMods}
+      rowSelectionModel={{
+        ids: new Set(activateMods),
+        type: 'include',
+      }}
       rows={modInfoList}
+      showToolbar={true}
+      slots={{ toolbar: CustomToolbar }}
       {...props}
     />
   );
