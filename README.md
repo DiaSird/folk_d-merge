@@ -1,7 +1,7 @@
 # D Merge(Diff & Merge) hkx patcher
 
 <div align="center">
-  <a href="https://github.com/SARDONYX-sard/d-merge/release">
+  <a href="https://github.com/SARDONYX-sard/d-merge/releases">
     <img src="./gui/backend/icons/icon.svg" alt="D Merge"/>
   </a>
 
@@ -71,6 +71,8 @@ The only thing we are considering at this time is support for the Nemesis patch.
 
   - [x] Serialization
   - [x] Deserialization
+  - [ ] txt project header patch
+  - [ ] anim header patch
   - [x] Add Operation
   - [x] Replace/Remove Operation
   - [ ] Conflict resolver
@@ -127,7 +129,3 @@ gui/backend (GPL-3.0)
 Other utility crates (e.g., `mod_info`, `node_expr`, `json_patch`, etc.) are licensed under **MIT OR Apache-2.0**, but the presence of GPL-licensed dependencies requires that the final binary (the GUI/backend) must be distributed under **GPL-3.0**.
 
 Please ensure that your usage and redistribution of this software complies with the [**GPL-3.0**](./LICENSE) license terms.
-
-## Frontend NOTE
-
-If we bump the deps version in package.json any further, you will no longer be able to sort by dnd.

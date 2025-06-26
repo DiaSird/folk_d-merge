@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
 use crate::ptr_mut::PointerMut as _;
 use crate::vec_utils::{SmartExtend as _, SmartIntoIter as _};
 use crate::{JsonPatch, JsonPatchError, JsonPath, Op, Result, ValueWithPriority};
@@ -15,7 +13,10 @@ const MARK_AS_REMOVED: Value<'static> = Value::String(Cow::Borrowed("##Mark_As_R
 /// # Note
 /// - Support `Object` or `Array`
 /// - Unsupported range remove. use `apply_range` instead
-pub(crate) fn apply_seq_by_priority<'a>(
+///
+/// # Errors
+/// Failed to apply
+pub fn apply_seq_by_priority<'a>(
     file_name: &str,
     json: &mut Value<'a>,
     path: JsonPath<'a>,
@@ -35,7 +36,7 @@ pub(crate) fn apply_seq_by_priority<'a>(
     {
         let path = path.join("/");
         let target_len = template_array.len();
-        let visualizer = visualize_ops(&patches);
+        let visualizer = visualize_ops(&patches)?;
         tracing::debug!(
             "Seq merge conflict resolution for `{file_name}` file:
 Path: {path}, Seq target length: {target_len}
@@ -44,7 +45,7 @@ Path: {path}, Seq target length: {target_len}
     }
 
     let patch_target_vec = core::mem::take(template_array);
-    let patched_array = apply_ops_parallel(*patch_target_vec, patches)
+    let patched_array = apply_ops_parallel(*patch_target_vec, patches)?
         .smart_iter()
         .filter(|v| v != &MARK_AS_REMOVED);
 
@@ -66,11 +67,13 @@ fn sort_by_priority<'a>(patches: &mut [ValueWithPriority<'a>]) {
             priority: b_priority,
         } = b;
 
-        let op_rank = |patch: &JsonPatch<'_>| match patch.op.as_seq().op {
-            Op::Replace => 0,
-            Op::Remove => 1,
-            Op::Add => 2,
-        };
+        let op_rank =
+            |patch: &JsonPatch<'_>| match patch.op.try_as_seq().map(|op| op.op).unwrap_or_default()
+            {
+                Op::Replace => 0,
+                Op::Remove => 1,
+                Op::Add => 2,
+            };
 
         a_priority.cmp(b_priority).then(op_rank(a).cmp(&op_rank(b)))
     });
@@ -86,11 +89,13 @@ fn sort_by_priority<'a>(patches: &mut [ValueWithPriority<'a>]) {
             priority: b_priority,
         } = b;
 
-        let op_rank = |patch: &JsonPatch<'_>| match patch.op.as_seq().op {
-            Op::Replace => 0,
-            Op::Remove => 1,
-            Op::Add => 2,
-        };
+        let op_rank =
+            |patch: &JsonPatch<'_>| match patch.op.try_as_seq().map(|op| op.op).unwrap_or_default()
+            {
+                Op::Replace => 0,
+                Op::Remove => 1,
+                Op::Add => 2,
+            };
 
         a_priority.cmp(b_priority).then(op_rank(a).cmp(&op_rank(b)))
     });
@@ -101,74 +106,80 @@ fn sort_by_priority<'a>(patches: &mut [ValueWithPriority<'a>]) {
 /// # Assumptions
 /// - patches are sorted.
 fn apply_ops_parallel<'a>(
-    base: Vec<Value<'a>>,
+    mut base: Vec<Value<'a>>,
     patches: Vec<ValueWithPriority<'a>>,
-) -> Vec<Value<'a>> {
-    use std::sync::{Arc, Mutex};
-
-    let (non_add_ops, add_ops): (Vec<_>, Vec<_>) = patches
-        .smart_iter()
-        .partition(|ValueWithPriority { patch, .. }| patch.op.as_seq().op != Op::Add);
-
-    let base = Arc::new(Mutex::new(base));
+) -> Result<Vec<Value<'a>>> {
+    let (non_add_ops, add_ops): (Vec<_>, Vec<_>) =
+        patches
+            .into_par_iter()
+            .partition(|ValueWithPriority { patch, .. }| {
+                patch.op.try_as_seq().map(|op| op.op).unwrap_or_default() != Op::Add
+            });
 
     // Replace, Remove
-    non_add_ops
-        .smart_iter()
-        .for_each(|ValueWithPriority { patch, .. }| {
-            let seq = patch.op.as_seq();
-            match seq.op {
-                Op::Replace => {
-                    let values = patch.value;
-                    seq.range
-                        .clone()
-                        .smart_iter()
-                        .zip(values.try_into_array().expect("array"))
-                        .for_each(|(i, v)| {
-                            let mut base = base.lock().unwrap();
-                            if i < base.len() {
-                                base[i] = v;
-                            }
-                        });
-                }
-                Op::Remove => {
-                    seq.range.clone().smart_iter().for_each(|i| {
-                        let mut base = base.lock().unwrap();
-                        if i < base.len() {
-                            base[i] = MARK_AS_REMOVED;
-                        }
+    for ValueWithPriority { patch, .. } in non_add_ops {
+        let JsonPatch { op, value } = patch;
+        let seq = op.try_as_seq()?;
+        match seq.op {
+            Op::Replace => {
+                let values = value
+                    .try_into_array()
+                    .map_err(|err| JsonPatchError::try_type_from(err, &["".into()], ""))?;
+                let range = seq.range.clone();
+                let Some(slice) = base.get_mut(range.clone()) else {
+                    return Err(JsonPatchError::UnexpectedRange {
+                        patch_range: range,
+                        actual_len: base.len(),
                     });
-                }
-                Op::Add => {}
+                };
+                slice
+                    .par_iter_mut()
+                    .zip(values)
+                    .for_each(|(element, patch)| {
+                        *element = patch;
+                    });
             }
-        });
+            Op::Remove => {
+                let range = seq.range.clone();
+                let Some(slice) = base.get_mut(range.clone()) else {
+                    return Err(JsonPatchError::UnexpectedRange {
+                        patch_range: range,
+                        actual_len: base.len(),
+                    });
+                };
+                slice.par_iter_mut().for_each(|element| {
+                    *element = MARK_AS_REMOVED;
+                });
+            }
+            Op::Add => {}
+        };
+    }
 
     // Add
-    let mut base = Arc::try_unwrap(base)
-        .expect("No other Arc references")
-        .into_inner()
-        .unwrap();
     let mut offset = 0;
     for value in add_ops {
-        let ValueWithPriority { patch, .. } = value;
-        let seq = patch.op.as_seq();
-        let values = patch.value.try_into_array().expect("array");
-
+        let seq = value.patch.op.try_as_seq()?;
+        let values = value
+            .patch
+            .value
+            .try_into_array()
+            .map_err(|err| JsonPatchError::try_type_from(err, &["".into()], ""))?;
         let insert_at = seq.range.start + offset;
-        let len = values.len();
+
         if insert_at <= base.len() {
+            let values_len = values.len();
             base.splice(insert_at..insert_at, values);
-            offset += len;
+            offset += values_len;
         } else {
             base.smart_extend(values);
         }
     }
 
-    base
+    Ok(base)
 }
 
 #[cfg(any(feature = "tracing", test))]
-fn visualize_ops(patches: &[ValueWithPriority<'_>]) -> String {
+fn visualize_ops(patches: &[ValueWithPriority<'_>]) -> Result<String, JsonPatchError> {
     use std::collections::BTreeSet;
 
     const CELL_WIDTH: usize = 5;
@@ -191,7 +202,7 @@ fn visualize_ops(patches: &[ValueWithPriority<'_>]) -> String {
 
     // 1. collect all used indices (0-based)
     for patch in patches {
-        let seq = patch.patch.op.as_seq();
+        let seq = patch.patch.op.try_as_seq()?;
         max_index = max_index.max(seq.range.end);
         for i in seq.range.start..seq.range.end {
             indices.insert(i);
@@ -222,7 +233,7 @@ fn visualize_ops(patches: &[ValueWithPriority<'_>]) -> String {
 
     // 4. render each patch line
     for patch in patches {
-        let seq = patch.patch.op.as_seq();
+        let seq = patch.patch.op.try_as_seq()?;
         let range = seq.range.clone();
         let op = seq.op;
 
@@ -254,7 +265,7 @@ fn visualize_ops(patches: &[ValueWithPriority<'_>]) -> String {
         output.push('\n');
     }
 
-    output
+    Ok(output)
 }
 
 #[cfg(test)]
@@ -331,8 +342,8 @@ mod tests {
         let base_seq: Vec<Value<'_>> = base_seq.smart_iter().map(|i| i.into()).collect();
 
         sort_by_priority(&mut patches);
-        println!("Operation Map:\n{}", visualize_ops(&patches));
-        let result = apply_ops_parallel(base_seq, patches);
+        println!("Operation Map:\n{}", visualize_ops(&patches).unwrap());
+        let result = apply_ops_parallel(base_seq, patches).unwrap();
 
         let result: Vec<_> = result
             .smart_iter()
